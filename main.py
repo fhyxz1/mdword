@@ -19,7 +19,10 @@ from PIL import Image  # 图标处理
 import os
 import sys
 import time
-
+"""
+@Author: ylab
+@Date: 2025/3/25
+"""
 if hasattr(sys, '_MEIPASS'):
     # 打包后的字体目录在 _MEIPASS/fonts 下
     resource_add_path(os.path.join(sys._MEIPASS, 'fonts'))
