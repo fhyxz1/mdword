@@ -8,7 +8,7 @@ from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.core.window import Window
 from kivy.lang import Builder
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, OptionProperty
 from kivy.clock import Clock
 import re
 import threading
@@ -19,10 +19,14 @@ from PIL import Image  # 图标处理
 import os
 import sys
 import time
+
 """
+@Version: v1.1
 @Author: ylab
 @Date: 2025/3/25
+@Update: 优化表格转换和列表清洗功能
 """
+
 if hasattr(sys, '_MEIPASS'):
     # 打包后的字体目录在 _MEIPASS/fonts 下
     resource_add_path(os.path.join(sys._MEIPASS, 'fonts'))
@@ -68,12 +72,7 @@ Builder.load_string('''
         spacing: '15sp'
         padding: '10sp'
 
-        Label:
-            text: '实时统计:'
-            font_size: '14sp'
-            color: hex('#4CAF50')
-
-        # 处理选项：依次为去除斜体、删除线、高亮、链接
+        # 处理选项区域
         BoxLayout:
             orientation: 'vertical'
             spacing: '5sp'
@@ -114,14 +113,45 @@ Builder.load_string('''
                 Label:
                     text: '去除链接'
 
-        BoxLayout:
-            orientation: 'vertical'
-            Label:
-                id: char_count
-                text: '字符数: 0'
-            Label:
-                id: process_time
-                text: '处理耗时: 0ms'
+            # 分开清洗无序列表与有序列表
+            BoxLayout:
+                size_hint_y: None
+                height: '30sp'
+                CheckBox:
+                    active: root.remove_unordered_list
+                    on_active: root.remove_unordered_list = self.active
+                Label:
+                    text: '清洗无序列表'
+            BoxLayout:
+                size_hint_y: None
+                height: '30sp'
+                CheckBox:
+                    active: root.remove_ordered_list
+                    on_active: root.remove_ordered_list = self.active
+                Label:
+                    text: '清洗有序列表'
+
+            # 表格清洁复选框
+            BoxLayout:
+                size_hint_y: None
+                height: '30sp'
+                CheckBox:
+                    active: root.table_clean
+                    on_active: root.table_clean = self.active
+                Label:
+                    text: '表格清洁'
+
+            # 表格转换下拉列表
+            BoxLayout:
+                size_hint_y: None
+                height: '30sp'
+                Label:
+                    text: '表格转换:'
+                Spinner:
+                    id: table_spinner
+                    text: root.table_conversion
+                    values: ['无', '空格', '/t', ',']
+                    on_text: root.table_conversion = self.text
 
     BoxLayout:
         orientation: 'vertical'
@@ -143,6 +173,7 @@ Builder.load_string('''
             hint_text: '处理后的纯净文本...'
             background_color: hex('#F5F5F5')
             foreground_color: hex('#333333')
+            font_name: 'Roboto'
 
 <CustomButton@Button>:
     font_size: '14sp'
@@ -158,16 +189,26 @@ class MarkdownTool(BoxLayout):
     remove_italic = BooleanProperty(False)
     remove_strikethrough = BooleanProperty(False)
     remove_highlight = BooleanProperty(False)
-    remove_links = BooleanProperty(False)  # 新增去除链接的选项
+    remove_links = BooleanProperty(False)
+    remove_unordered_list = BooleanProperty(False)
+    remove_ordered_list = BooleanProperty(False)
+
+    # 表格处理相关：清洁和转换选项
+    table_clean = BooleanProperty(False)
+    table_conversion = OptionProperty("无", options=["无", "空格", "/t",","])
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._keyboard = Window.request_keyboard(None, self)
         # 绑定选项变化时动态更新
-        self.bind(remove_italic=lambda instance, value: self._option_changed())
-        self.bind(remove_strikethrough=lambda instance, value: self._option_changed())
-        self.bind(remove_highlight=lambda instance, value: self._option_changed())
-        self.bind(remove_links=lambda instance, value: self._option_changed())
+        self.bind(remove_italic=lambda inst, val: self._option_changed())
+        self.bind(remove_strikethrough=lambda inst, val: self._option_changed())
+        self.bind(remove_highlight=lambda inst, val: self._option_changed())
+        self.bind(remove_links=lambda inst, val: self._option_changed())
+        self.bind(remove_unordered_list=lambda inst, val: self._option_changed())
+        self.bind(remove_ordered_list=lambda inst, val: self._option_changed())
+        self.bind(table_clean=lambda inst, val: self._option_changed())
+        self.bind(table_conversion=lambda inst, val: self._option_changed())
 
     def _option_changed(self):
         if self.auto_process:
@@ -194,6 +235,9 @@ class MarkdownTool(BoxLayout):
             # 移除加粗语法 **text**
             text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
 
+            # 默认清洗功能：移除 ''md样式（两个单引号包裹）的文本标记
+            text = re.sub(r"''(.*?)''", r'\1', text)
+
             # 根据选项去除斜体（处理 *text* 和 _text_ ）
             if self.remove_italic:
                 text = re.sub(r'(?<!\*)\*(?!\*)(.*?)\*(?!\*)', r'\1', text)
@@ -207,20 +251,49 @@ class MarkdownTool(BoxLayout):
             if self.remove_highlight:
                 text = re.sub(r'==(.+?)==', r'\1', text)
 
-            # 根据选项去除链接，匹配 Markdown 格式链接 [文本](链接)
+            # 根据选项去除链接（Markdown 格式链接）
             if self.remove_links:
                 text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
 
-            # 默认去除 Markdown 分割线（如 ---、***、___ 独占一行的情况）
+            # 列表样式清洁：分开处理无序列表和有序列表
+            if self.remove_unordered_list:
+                text = re.sub(r'(?m)^\s*[-*+]\s+', '', text)
+            if self.remove_ordered_list:
+                text = re.sub(r'(?m)^\s*\d+\.\s+', '', text)
+
+            # 表格处理
+            if self.table_clean:
+                # 清洁模式：移除分隔行和所有管道符
+                text = re.sub(r'(?m)^\s*\|?[\s\-|]+\|?\s*$', '', text)
+                text = text.replace("|", "")
+            elif self.table_conversion != "无":
+                # 分行处理：先将文本按行分割，再逐行清理
+                lines = text.splitlines()
+                processed_lines = []
+                for line in lines:
+                    # 跳过分隔行
+                    if re.match(r'^\s*\|?[\s\-|]+\|?\s*$', line):
+                        continue
+                    # 去除首尾可能存在的管道符及空白
+                    line = line.strip()
+                    if line.startswith("|"):
+                        line = line[1:]
+                    if line.endswith("|"):
+                        line = line[:-1]
+                    # 按选项转换中间的管道符
+                    if self.table_conversion == "空格":
+                        line = line.replace("|", "    ")
+                    elif self.table_conversion == "→":
+                        line = line.replace("|", "/t")
+                    elif self.table_conversion == ",":
+                        line = line.replace("|", ",")
+                    processed_lines.append(line)
+                text = "\n".join(processed_lines)
+
+            # 默认去除 Markdown 分割线（如 ---、***、___ 独占一行）
             text = re.sub(r'(?m)^(?:\s*[-*_]{3,}\s*)$', '', text)
 
             self.ids.output_area.text = text.strip()
-
-            # 更新统计信息
-            char_count = len(self.ids.input_area.text)
-            self.ids.char_count.text = f'字符数: {char_count}'
-            process_time = (time.perf_counter() - start_time) * 1000
-            self.ids.process_time.text = f'处理耗时: {process_time:.2f}ms'
         except Exception as e:
             self.ids.output_area.text = f"处理错误: {str(e)}"
 
@@ -232,7 +305,6 @@ class MarkdownTool(BoxLayout):
 
     def process_reset(self, target):
         getattr(self.ids, f"{target}_area").text = ''
-
 
 class MarkdownApp(App):
     def __init__(self, **kwargs):
@@ -266,39 +338,35 @@ class MarkdownApp(App):
             'mdword',
             create_image(),
             menu=menu,
-            title="mdword\nN+M快速启动"  # 悬浮提示文字
+            title="mdword\nN+M快速启动"
         )
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def register_hotkey(self):
         def toggle_window():
             def _toggle(dt):
-                # 使用 Window.visible 判断窗口是否可见
                 if Window.visible:
                     Window.hide()
                 else:
                     Window.show()
                     Window.raise_window()
             Clock.schedule_once(_toggle)
-        keyboard.add_hotkey('N+M',Clock.schedule_once(lambda dt: (Window.show(), Window.raise_window())))
+        keyboard.add_hotkey('N+M', Clock.schedule_once(lambda dt: (Window.show(), Window.raise_window())))
 
     def on_request_close(self, *args):
         self.show_confirmation()
-        return True  # 阻止默认关闭行为
+        return True
 
     def show_confirmation(self):
         content = BoxLayout(orientation='vertical', spacing=10)
         popup = Popup(title='操作确认', content=content, size_hint=(0.6, 0.3))
-
         btn_layout = BoxLayout(spacing=10, size_hint_y=0.5)
         btn_min = Button(text='最小化到托盘', on_press=lambda x: self.minimize_app(popup))
         btn_exit = Button(text='退出程序', on_press=lambda x: self.exit_app(popup))
-
         content.add_widget(Label(text='请选择要执行的操作:'))
         btn_layout.add_widget(btn_min)
         btn_layout.add_widget(btn_exit)
         content.add_widget(btn_layout)
-
         popup.open()
 
     def minimize_app(self, popup):
@@ -318,7 +386,7 @@ class MarkdownApp(App):
             self.tray_icon.stop()
         Window.close()
         App.get_running_app().stop()
-        os._exit(0)  # 确保完全退出
+        os._exit(0)
 
 if __name__ == '__main__':
     MarkdownApp().run()
