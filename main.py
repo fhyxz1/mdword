@@ -263,16 +263,50 @@ class MarkdownTool(BoxLayout):
 
             # 表格处理
             if self.table_clean:
-                # 清洁模式：移除分隔行和所有管道符
-                text = re.sub(r'(?m)^\s*\|?[\s\-|]+\|?\s*$', '', text)
-                text = text.replace("|", "")
+                # 增强的清洁模式：处理对齐表格，移除分隔行、对齐标记和所有管道符
+                lines = text.splitlines()
+                processed_lines = []
+                in_table = False
+
+                for line in lines:
+                    # 检测是否为表格分隔行（可能包含对齐标记 :-等）
+                    if re.match(r'^\s*\|?[\s\-:|]+\|?\s*$', line):
+                        in_table = True
+                        continue  # 跳过分隔行
+
+                    # 如果在表格中且行包含管道符
+                    if in_table and '|' in line:
+                        # 去除首尾管道符及空白
+                        line = line.strip()
+                        if line.startswith("|"):
+                            line = line[1:]
+                        if line.endswith("|"):
+                            line = line[:-1]
+
+                        # 移除列对齐标记（如 :--- 或 ---: 或 :--:）
+                        line = re.sub(r':?-{3,}:?', '', line)
+
+                        # 移除所有剩余的管道符
+                        line = line.replace("|", "")
+
+                        # 移除可能的多余空格
+                        line = ' '.join(line.split())
+
+                        processed_lines.append(line)
+                    else:
+                        if in_table:
+                            in_table = False  # 表格结束
+                        processed_lines.append(line)
+
+                text = "\n".join(processed_lines)
+
             elif self.table_conversion != "无":
                 # 分行处理：先将文本按行分割，再逐行清理
                 lines = text.splitlines()
                 processed_lines = []
                 for line in lines:
-                    # 跳过分隔行
-                    if re.match(r'^\s*\|?[\s\-|]+\|?\s*$', line):
+                    # 跳过分隔行（包括对齐标记行）
+                    if re.match(r'^\s*\|?[\s\-:|]+\|?\s*$', line):
                         continue
                     # 去除首尾可能存在的管道符及空白
                     line = line.strip()
@@ -283,8 +317,8 @@ class MarkdownTool(BoxLayout):
                     # 按选项转换中间的管道符
                     if self.table_conversion == "空格":
                         line = line.replace("|", "    ")
-                    elif self.table_conversion == "→":
-                        line = line.replace("|", "/t")
+                    elif self.table_conversion == "/t":
+                        line = line.replace("|", "\t")  # 修正为实际的制表符
                     elif self.table_conversion == ",":
                         line = line.replace("|", ",")
                     processed_lines.append(line)
