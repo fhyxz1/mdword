@@ -1,5 +1,5 @@
 # mdword - Markdown文本处理工具
-
+Date 4.26
 mdword是一个简单高效的Markdown文本处理工具，可以帮助您快速清理Markdown文本、转换表格格式，以及导出为纯文本或Word文档。
 
 ## 主要功能
