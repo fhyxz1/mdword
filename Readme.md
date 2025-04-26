@@ -13,17 +13,10 @@ mdword是一个简单高效的Markdown文本处理工具，可以帮助您快速
 
 ## 更新日志
 
-- **v1.2**：新增Markdown导出为Word文档功能
+- **v1.2**：新增Markdown导出为Word文档功能,修复制表符错误
 - **v1.1**：优化表格转换和列表清洗功能
 - **v1.0**：首次发布，基本Markdown清洗功能
 
-## 安装使用
-
-1. 确保系统已安装Python 3.7+
-2. 安装依赖：`pip install -r requirements.txt`
-3. 运行程序：`python main.py`
-
-或直接下载发布的可执行文件运行。
 
 ## 快捷键
 
